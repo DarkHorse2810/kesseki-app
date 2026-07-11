@@ -1,0 +1,46 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Position {
+  PITCHER
+  CATCHER
+  INFIELDER
+  OUTFIELDER
+  MANAGER
+  ANALYST
+}
+
+model Player {
+  id        Int              @id @default(autoincrement())
+  name      String
+  baseGrade Int
+  baseYear  Int
+  positions PlayerPosition[]
+  absences  Absence[]
+}
+
+model PlayerPosition {
+  id       Int      @id @default(autoincrement())
+  playerId Int
+  player   Player   @relation(fields: [playerId], references: [id])
+  position Position
+}
+
+model Absence {
+  id       Int      @id @default(autoincrement())
+  playerId Int
+  player   Player   @relation(fields: [playerId], references: [id])
+  date     DateTime
+  reason   String
+}
