@@ -14,3 +14,7 @@ export function calculateCurrentGrade(
   const elapsedYears = getFiscalYear(asOf) - baseYear;
   return baseGrade + elapsedYears;
 }
+
+export function getCurrentFiscalYear(asOf: Date = new Date()): number {
+  return getFiscalYear(asOf);
+}

@@ -26,6 +26,7 @@ model Player {
   name      String
   baseGrade Int
   baseYear  Int
+  pin       String           @unique
   positions PlayerPosition[]
   absences  Absence[]
 }
@@ -43,4 +44,10 @@ model Absence {
   player   Player   @relation(fields: [playerId], references: [id])
   date     DateTime
   reason   String
+}
+
+model ScheduleItem {
+  id   Int      @id @default(autoincrement())
+  date DateTime
+  text String
 }

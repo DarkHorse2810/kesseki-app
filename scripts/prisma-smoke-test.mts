@@ -8,6 +8,7 @@ async function main() {
       name: "山田太郎",
       baseGrade: 1,
       baseYear: 2025,
+      pin: "9999",
       positions: {
         create: [{ position: "PITCHER" }, { position: "OUTFIELDER" }],
       },
