@@ -189,24 +189,24 @@ export default function SchedulePage() {
   };
 
   return (
-    <div className="min-h-dvh bg-[#fafafa] px-4 pt-10 pb-40 dark:bg-black">
-      <div className="mx-auto w-full max-w-[960px] rounded-2xl bg-background p-6 text-foreground shadow-[0_1px_8px_rgba(0,0,0,0.08)]">
+    <div className="min-h-dvh bg-[#fafafa] px-2 pt-10 pb-40 sm:px-4 dark:bg-black">
+      <div className="mx-auto w-full max-w-[960px] rounded-2xl bg-background p-3 text-foreground shadow-[0_1px_8px_rgba(0,0,0,0.08)] sm:p-6">
         <TodayAbsenceLink />
 
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between sm:mb-6">
           <button
             type="button"
-            className="cursor-pointer rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100"
+            className="cursor-pointer rounded-lg border border-gray-300 px-2 py-1.5 text-xs hover:bg-gray-100 sm:px-3 sm:text-sm"
             onClick={goPrevMonth}
           >
             ← 前月
           </button>
-          <h1 className="text-lg font-semibold">
+          <h1 className="text-base font-semibold sm:text-lg">
             {viewYear}年{viewMonth}月
           </h1>
           <button
             type="button"
-            className="cursor-pointer rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100"
+            className="cursor-pointer rounded-lg border border-gray-300 px-2 py-1.5 text-xs hover:bg-gray-100 sm:px-3 sm:text-sm"
             onClick={goNextMonth}
           >
             翌月 →
@@ -220,7 +220,7 @@ export default function SchedulePage() {
           {WEEKDAY_LABELS.map((label, index) => (
             <div
               key={label}
-              className={`bg-gray-50 py-2 text-center font-semibold ${
+              className={`bg-gray-50 py-1 text-center text-[10px] font-semibold sm:py-2 sm:text-xs ${
                 index === 0 ? "text-red-600" : index === 6 ? "text-blue-600" : "text-gray-600"
               }`}
             >
@@ -231,17 +231,19 @@ export default function SchedulePage() {
           {calendarCells.map((cell) => (
             <div
               key={cell.dateKey}
-              className={`min-h-[96px] bg-background p-1 ${
+              className={`min-h-[60px] bg-background p-0.5 sm:min-h-[96px] sm:p-1 ${
                 cell.isCurrentMonth ? "" : "opacity-40"
               }`}
             >
-              <div className="mb-1 flex items-baseline justify-between gap-1">
-                <span className="truncate text-[11px] text-foreground">
+              <div className="mb-0.5 flex items-baseline justify-between gap-0.5 sm:mb-1 sm:gap-1">
+                <span className="truncate text-[9px] text-foreground sm:text-[11px]">
                   {cell.scheduleItems.map((item) => item.text).join("、")}
                 </span>
-                <span className={`shrink-0 text-[11px] ${cell.dayColor}`}>{cell.day}</span>
+                <span className={`shrink-0 text-[9px] sm:text-[11px] ${cell.dayColor}`}>
+                  {cell.day}
+                </span>
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-0.5 sm:gap-1">
                 {cell.absences.map((absence) => (
                   <PlayerBanner
                     key={absence.id}
@@ -283,7 +285,7 @@ function PlayerBanner({
   return (
     <button
       type="button"
-      className="relative flex h-6 w-full cursor-pointer overflow-hidden rounded text-[11px] font-medium text-black"
+      className="relative flex h-4 w-full cursor-pointer overflow-hidden rounded text-[9px] font-medium text-black sm:h-6 sm:text-[11px]"
       onClick={onClick}
     >
       {(segments.length > 0 ? segments : ["UNKNOWN"]).map((position, index) => (
@@ -292,7 +294,7 @@ function PlayerBanner({
           className={`h-full flex-1 ${POSITION_COLOR[position] ?? "bg-gray-300"}`}
         />
       ))}
-      <span className="absolute inset-0 flex items-center justify-center truncate px-1">
+      <span className="absolute inset-0 flex items-center justify-center truncate px-0.5 sm:px-1">
         {absence.player.currentGrade}年 {absence.player.name}
       </span>
     </button>

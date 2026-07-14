@@ -10,6 +10,8 @@ export default function AbsencePage() {
   const { selfPlayer, isChecking } = useSelfPlayer();
 
   const [date, setDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [isRange, setIsRange] = useState(false);
   const [reason, setReason] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,6 +19,7 @@ export default function AbsencePage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const dateFieldId = useId();
+  const endDateFieldId = useId();
   const reasonFieldId = useId();
 
   useEffect(() => {
@@ -24,6 +27,7 @@ export default function AbsencePage() {
   }, []);
 
   const isDateValid = date.trim().length > 0;
+  const isEndDateValid = !isRange || endDate.trim().length > 0;
   const isReasonValid = reason.trim().length > 0;
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
@@ -37,7 +41,7 @@ export default function AbsencePage() {
       return;
     }
 
-    if (!isDateValid || !isReasonValid) return;
+    if (!isDateValid || !isEndDateValid || !isReasonValid) return;
     if (isSubmitting) return;
 
     setIsSubmitting(true);
@@ -48,6 +52,7 @@ export default function AbsencePage() {
         body: JSON.stringify({
           playerId: selfPlayer.id,
           date,
+          endDate: isRange ? endDate : undefined,
           reason,
         }),
       });
@@ -59,6 +64,8 @@ export default function AbsencePage() {
       }
 
       setDate("");
+      setEndDate("");
+      setIsRange(false);
       setReason("");
       setSubmitted(false);
       setSuccessMessage("送信しました");
@@ -98,7 +105,7 @@ export default function AbsencePage() {
         <form onSubmit={handleSubmit} noValidate>
           <div className="mb-5">
             <label htmlFor={dateFieldId} className="mb-1.5 block text-sm font-semibold">
-              日付
+              {isRange ? "開始日" : "日付"}
               <span className="ml-1 text-xs font-normal text-red-600">必須</span>
             </label>
             <input
@@ -111,7 +118,37 @@ export default function AbsencePage() {
             {submitted && !isDateValid && (
               <p className="mt-1 text-xs text-red-600">日付を入力してください</p>
             )}
+
+            <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={isRange}
+                onChange={(e) => setIsRange(e.target.checked)}
+              />
+              期間で指定する(複数日まとめて登録)
+            </label>
           </div>
+
+          {isRange && (
+            <div className="mb-5">
+              <label htmlFor={endDateFieldId} className="mb-1.5 block text-sm font-semibold">
+                終了日
+                <span className="ml-1 text-xs font-normal text-red-600">必須</span>
+              </label>
+              <input
+                id={endDateFieldId}
+                type="date"
+                min={date || undefined}
+                className="w-full rounded-lg border border-gray-300 bg-background px-3 py-2.5 text-base text-foreground focus:outline-2 focus:outline-offset-1 focus:outline-blue-600"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+              {submitted && !isEndDateValid && (
+                <p className="mt-1 text-xs text-red-600">終了日を入力してください</p>
+              )}
+            </div>
+          )}
 
           <div className="mb-5">
             <label htmlFor={reasonFieldId} className="mb-1.5 block text-sm font-semibold">

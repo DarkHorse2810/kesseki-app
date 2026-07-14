@@ -5,9 +5,12 @@ import { calculateCurrentGrade } from "@/lib/grade";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const dateParam = searchParams.get("date");
+  const yearParam = searchParams.get("year");
+  const monthParam = searchParams.get("month");
 
-  let rangeStart: Date;
-  let rangeEnd: Date;
+  let rangeStart: Date | undefined;
+  let rangeEnd: Date | undefined;
+  let sortOrder: "asc" | "desc" = "asc";
 
   if (dateParam) {
     const day = new Date(dateParam);
@@ -16,9 +19,9 @@ export async function GET(request: Request) {
     }
     rangeStart = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()));
     rangeEnd = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate() + 1));
-  } else {
-    const year = Number(searchParams.get("year"));
-    const month = Number(searchParams.get("month"));
+  } else if (yearParam || monthParam) {
+    const year = Number(yearParam);
+    const month = Number(monthParam);
 
     if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
       return NextResponse.json(
@@ -29,12 +32,16 @@ export async function GET(request: Request) {
 
     rangeStart = new Date(Date.UTC(year, month - 1, 1));
     rangeEnd = new Date(Date.UTC(year, month, 1));
+  } else {
+    // No filters: return the full history, newest first (used by the
+    // settings "欠席削除" list).
+    sortOrder = "desc";
   }
 
   const absences = await prisma.absence.findMany({
-    where: { date: { gte: rangeStart, lt: rangeEnd } },
+    where: rangeStart && rangeEnd ? { date: { gte: rangeStart, lt: rangeEnd } } : undefined,
     include: { player: { include: { positions: true } } },
-    orderBy: { date: "asc" },
+    orderBy: { date: sortOrder },
   });
 
   const result = absences.map((absence) => ({
@@ -63,9 +70,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
   }
 
-  const { playerId, date, reason } = body as {
+  const { playerId, date, endDate, reason } = body as {
     playerId?: unknown;
     date?: unknown;
+    endDate?: unknown;
     reason?: unknown;
   };
 
@@ -83,6 +91,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "日付を正しく入力してください" }, { status: 400 });
   }
 
+  let parsedEndDate = parsedDate;
+  if (typeof endDate === "string" && endDate.trim().length > 0) {
+    parsedEndDate = new Date(endDate);
+    if (Number.isNaN(parsedEndDate.getTime())) {
+      return NextResponse.json({ error: "終了日を正しく入力してください" }, { status: 400 });
+    }
+    if (parsedEndDate < parsedDate) {
+      return NextResponse.json({ error: "終了日は開始日以降にしてください" }, { status: 400 });
+    }
+  }
+
   if (typeof reason !== "string" || reason.trim().length === 0) {
     return NextResponse.json({ error: "理由を入力してください" }, { status: 400 });
   }
@@ -92,13 +111,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "選択された選手が見つかりません" }, { status: 400 });
   }
 
-  const absence = await prisma.absence.create({
-    data: {
+  const dates: Date[] = [];
+  for (
+    let d = new Date(parsedDate);
+    d <= parsedEndDate;
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) {
+    dates.push(new Date(d));
+    if (dates.length > 90) {
+      return NextResponse.json(
+        { error: "一度に指定できる期間は90日までです" },
+        { status: 400 },
+      );
+    }
+  }
+
+  const trimmedReason = reason.trim();
+  const absences = await prisma.absence.createManyAndReturn({
+    data: dates.map((d) => ({
       playerId: playerIdNumber,
-      date: parsedDate,
-      reason: reason.trim(),
-    },
+      date: d,
+      reason: trimmedReason,
+    })),
   });
 
-  return NextResponse.json({ absence }, { status: 201 });
+  return NextResponse.json({ absences }, { status: 201 });
 }

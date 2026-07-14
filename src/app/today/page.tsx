@@ -9,6 +9,7 @@ const NON_PLAYER_POSITIONS = new Set(["MANAGER", "ANALYST"]);
 
 type AbsenceEntry = {
   id: number;
+  reason: string;
   player: {
     id: number;
     name: string;
@@ -89,6 +90,7 @@ export default function TodayAbsencePage() {
             {absences.map((absence) => (
               <li key={absence.id} className="text-base">
                 {absence.player.currentGrade}年{absence.player.name}
+                <span className="ml-2 text-sm text-gray-500">{absence.reason}</span>
               </li>
             ))}
           </ul>
