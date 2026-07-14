@@ -46,3 +46,7 @@ next-env.d.ts
 # sqlite
 *.db
 *.db-journal
+
+# local Claude Code settings / logs
+.claude/settings.local.json
+.next-start.log
