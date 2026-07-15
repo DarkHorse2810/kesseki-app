@@ -2,10 +2,11 @@ name: Notify today's absences via LINE
 
 on:
   schedule:
-    # Runs every 15 minutes, all day, every day. The actual send decision
+    # Runs every 5 minutes, all day, every day. The actual send decision
     # (whether "now" matches the configured time for today) happens inside
     # /api/line/notify-today, based on settings stored in the app.
-    - cron: "*/15 * * * *"
+    # Relies on the repo being public so Actions minutes are unlimited/free.
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 jobs:

@@ -6,8 +6,8 @@ import { pushMessage } from "@/lib/line";
 const NON_PLAYER_POSITIONS = new Set(["MANAGER", "ANALYST"]);
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 // How close "now" must be to the configured send time to trigger a send.
-// Needs to comfortably cover the ~15 minute gap between cron checks.
-const MATCH_WINDOW_MINUTES = 10;
+// Needs to comfortably cover the ~5 minute gap between cron checks.
+const MATCH_WINDOW_MINUTES = 4;
 
 function jstWallClock(date: Date) {
   const shifted = new Date(date.getTime() + JST_OFFSET_MS);
