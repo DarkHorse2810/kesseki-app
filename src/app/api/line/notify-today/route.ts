@@ -24,12 +24,13 @@ function minutesFromTimeString(time: string): number {
 }
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const authHeader = request.headers.get("authorization")?.trim();
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const targetUserId = process.env.LINE_TARGET_USER_ID;
+  const targetUserId = process.env.LINE_TARGET_USER_ID?.trim();
   if (!targetUserId) {
     return NextResponse.json({ error: "LINE_TARGET_USER_ID が未設定です" }, { status: 500 });
   }

@@ -1,12 +1,19 @@
 import crypto from "node:crypto";
 
+// Environment variables copy-pasted from a dashboard UI can easily pick up a
+// trailing newline or stray whitespace, which silently breaks signature
+// checks and API calls. Trim defensively wherever we read one.
+function trimmedEnv(name: string): string | undefined {
+  return process.env[name]?.trim() || undefined;
+}
+
 export function verifyLineSignature(rawBody: string, signature: string | null): boolean {
   if (!signature) return false;
-  const secret = process.env.LINE_CHANNEL_SECRET;
+  const secret = trimmedEnv("LINE_CHANNEL_SECRET");
   if (!secret) return false;
 
   const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
-  return expected === signature;
+  return expected === signature.trim();
 }
 
 async function callLineApi(path: string, body: unknown) {
@@ -14,7 +21,7 @@ async function callLineApi(path: string, body: unknown) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+      Authorization: `Bearer ${trimmedEnv("LINE_CHANNEL_ACCESS_TOKEN")}`,
     },
     body: JSON.stringify(body),
   });
@@ -34,7 +41,7 @@ export function replyMessage(replyToken: string, text: string) {
 
 export function pushMessage(to: string, text: string) {
   return callLineApi("message/push", {
-    to,
+    to: to.trim(),
     messages: [{ type: "text", text }],
   });
 }
