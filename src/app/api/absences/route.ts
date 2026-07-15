@@ -1,6 +1,34 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateCurrentGrade } from "@/lib/grade";
+import { pushMessage } from "@/lib/line";
+
+const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+
+function formatDateLabel(date: Date): string {
+  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}(${WEEKDAY_LABELS[date.getUTCDay()]})`;
+}
+
+async function notifyRealtimeTargets(
+  playerName: string,
+  grade: number,
+  dates: Date[],
+  reason: string,
+) {
+  const targets = await prisma.realtimeAbsenceTarget.findMany();
+  if (targets.length === 0) return;
+
+  const dateLabel =
+    dates.length === 1
+      ? formatDateLabel(dates[0])
+      : `${formatDateLabel(dates[0])}〜${formatDateLabel(dates[dates.length - 1])}`;
+
+  const message = `【欠席連絡】\n${grade}年${playerName}\n${dateLabel}\n${reason}`;
+
+  await Promise.allSettled(
+    targets.map((target) => pushMessage(target.lineId, message)),
+  );
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -134,6 +162,9 @@ export async function POST(request: Request) {
       reason: trimmedReason,
     })),
   });
+
+  const currentGrade = calculateCurrentGrade(player.baseGrade, player.baseYear, dates[0]);
+  await notifyRealtimeTargets(player.name, currentGrade, dates, trimmedReason).catch(() => {});
 
   return NextResponse.json({ absences }, { status: 201 });
 }

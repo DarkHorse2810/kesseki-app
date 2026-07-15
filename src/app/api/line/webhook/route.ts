@@ -4,9 +4,16 @@ import { replyMessage, verifyLineSignature } from "@/lib/line";
 type LineEvent = {
   type: string;
   replyToken?: string;
-  source?: { userId?: string };
+  source?: { type: string; userId?: string; groupId?: string; roomId?: string };
   message?: { type: string; text?: string };
 };
+
+function describeSource(source: LineEvent["source"]): string {
+  if (!source) return "(取得できませんでした)";
+  if (source.type === "group") return `グループID:\n${source.groupId}`;
+  if (source.type === "room") return `ルームID:\n${source.roomId}`;
+  return `User ID:\n${source.userId}`;
+}
 
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -19,11 +26,21 @@ export async function POST(request: Request) {
   const body = JSON.parse(rawBody) as { events?: LineEvent[] };
 
   for (const event of body.events ?? []) {
-    if (event.type === "message" && event.message?.type === "text" && event.replyToken) {
-      const userId = event.source?.userId ?? "(取得できませんでした)";
+    if (!event.replyToken) continue;
+
+    // Fired the moment the bot is added to a group or room.
+    if (event.type === "join") {
       await replyMessage(
         event.replyToken,
-        `あなたのLINE User IDです。管理者に伝えてください。\n\n${userId}`,
+        `このグループ/ルームのIDです。管理者に伝えてください。\n\n${describeSource(event.source)}`,
+      ).catch(() => {});
+      continue;
+    }
+
+    if (event.type === "message" && event.message?.type === "text") {
+      await replyMessage(
+        event.replyToken,
+        `あなたのLINE ${event.source?.type === "user" ? "User ID" : "グループ/ルームID"}です。管理者に伝えてください。\n\n${describeSource(event.source)}`,
       ).catch(() => {});
     }
   }

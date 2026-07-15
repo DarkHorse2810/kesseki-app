@@ -79,3 +79,12 @@ model NotificationRecipient {
   label      String?
   createdAt  DateTime @default(now())
 }
+
+// A LINE group/room that gets an immediate message the moment a new
+// absence is submitted through the site.
+model RealtimeAbsenceTarget {
+  id        Int      @id @default(autoincrement())
+  lineId    String   @unique // LINE groupId or roomId
+  label     String?
+  createdAt DateTime @default(now())
+}
