@@ -88,3 +88,11 @@ model RealtimeAbsenceTarget {
   label     String?
   createdAt DateTime @default(now())
 }
+
+// Tracks which chat (group/room/user) has already been told its ID via the
+// webhook's auto-reply, so we only announce it once and stay quiet after
+// that instead of replying to every single message in the group.
+model WebhookGreetedSource {
+  id        String   @id // e.g. "group:<groupId>", "room:<roomId>", "user:<userId>"
+  greetedAt DateTime @default(now())
+}
