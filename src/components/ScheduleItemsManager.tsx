@@ -104,7 +104,7 @@ export default function ScheduleItemsManager() {
     }
   };
 
-  if (isLoading) return <p className="text-sm text-gray-500">読み込み中...</p>;
+  if (isLoading) return null;
   if (loadError) return <p className="text-sm text-red-600">{loadError}</p>;
 
   return (

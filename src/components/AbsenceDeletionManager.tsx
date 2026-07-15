@@ -73,7 +73,7 @@ export default function AbsenceDeletionManager({ password }: { password: string 
     }
   };
 
-  if (isLoading) return <p className="text-sm text-gray-500">読み込み中...</p>;
+  if (isLoading) return null;
   if (loadError) return <p className="text-sm text-red-600">{loadError}</p>;
   if (absences.length === 0) {
     return <p className="text-sm text-gray-500">欠席記録はありません。</p>;

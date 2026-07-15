@@ -78,7 +78,6 @@ export default function TodayAbsencePage() {
           今日の欠席　{absences.length}名（{nonPlayerCount}名）
         </h1>
 
-        {isLoading && <p className="text-sm text-gray-500">読み込み中...</p>}
         {loadError && <p className="text-sm text-red-600">{loadError}</p>}
 
         {!isLoading && !loadError && absences.length === 0 && (

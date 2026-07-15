@@ -57,7 +57,6 @@ export default function SchedulePage() {
   const [viewMonth, setViewMonth] = useState<number>(() => new Date().getMonth() + 1);
 
   const [absences, setAbsences] = useState<AbsenceEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [scheduleItems, setScheduleItems] = useState<ScheduleItemEntry[]>([]);
@@ -70,7 +69,6 @@ export default function SchedulePage() {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
     setLoadError(null);
 
     fetch(`/api/absences?year=${viewYear}&month=${viewMonth}`)
@@ -83,9 +81,6 @@ export default function SchedulePage() {
       })
       .catch(() => {
         if (!cancelled) setLoadError("欠席情報の取得に失敗しました");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
       });
 
     return () => {
@@ -213,7 +208,6 @@ export default function SchedulePage() {
           </button>
         </div>
 
-        {isLoading && <p className="mb-4 text-sm text-gray-500">読み込み中...</p>}
         {loadError && <p className="mb-4 text-sm text-red-600">{loadError}</p>}
 
         <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 text-xs">

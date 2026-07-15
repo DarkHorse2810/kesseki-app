@@ -212,7 +212,6 @@ export default function SettingsPanel() {
 
       {view === "players" && (
         <>
-          {isLoading && <p className="text-sm text-gray-500">読み込み中...</p>}
           {loadError && <p className="text-sm text-red-600">{loadError}</p>}
 
           {!isLoading && !loadError && players.length === 0 && (
