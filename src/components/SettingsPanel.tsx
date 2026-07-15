@@ -4,9 +4,10 @@ import { useEffect, useId, useState } from "react";
 import { positionLabel } from "@/lib/positions";
 import ScheduleItemsManager from "@/components/ScheduleItemsManager";
 import AbsenceDeletionManager from "@/components/AbsenceDeletionManager";
+import NotificationScheduleManager from "@/components/NotificationScheduleManager";
 import { SETTINGS_AUTH_DURATION_MS, SETTINGS_AUTH_STORAGE_KEY } from "@/lib/deviceStorage";
 
-type SettingsView = "players" | "schedule" | "absences";
+type SettingsView = "players" | "schedule" | "absences" | "notifications";
 
 type Player = {
   id: number;
@@ -205,10 +206,22 @@ export default function SettingsPanel() {
         >
           欠席削除
         </button>
+        <button
+          type="button"
+          className={`cursor-pointer border-b-2 px-1 pb-2 font-semibold ${
+            view === "notifications"
+              ? "border-blue-600 text-blue-600"
+              : "border-transparent text-gray-500"
+          }`}
+          onClick={() => setView("notifications")}
+        >
+          通知設定
+        </button>
       </div>
 
       {view === "schedule" && <ScheduleItemsManager />}
       {view === "absences" && <AbsenceDeletionManager password={password} />}
+      {view === "notifications" && <NotificationScheduleManager password={password} />}
 
       {view === "players" && (
         <>

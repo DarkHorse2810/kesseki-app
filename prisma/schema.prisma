@@ -51,3 +51,23 @@ model ScheduleItem {
   date DateTime
   text String
 }
+
+// 0 = Sunday ... 6 = Saturday. time is "HH:MM" in JST, null = don't send.
+model WeekdaySchedule {
+  weekday Int     @id
+  time    String?
+}
+
+// Per-date override of the weekday default. time is "HH:MM" in JST,
+// null = skip sending on this date.
+model DateOverride {
+  date DateTime @id
+  time String?
+}
+
+// One row per calendar date (JST) that a notification has already been
+// sent for, to avoid duplicate sends across multiple cron checks.
+model NotificationLog {
+  date   DateTime @id
+  sentAt DateTime @default(now())
+}

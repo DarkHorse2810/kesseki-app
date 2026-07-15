@@ -1,0 +1,19 @@
+name: Notify today's absences via LINE
+
+on:
+  schedule:
+    # Runs every 15 minutes, all day, every day. The actual send decision
+    # (whether "now" matches the configured time for today) happens inside
+    # /api/line/notify-today, based on settings stored in the app.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call notify-today endpoint
+        run: |
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://kesseki-app.vercel.app/api/line/notify-today"

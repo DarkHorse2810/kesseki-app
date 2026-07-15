@@ -1,9 +1,3 @@
 {
-  "regions": ["hnd1"],
-  "crons": [
-    {
-      "path": "/api/line/notify-today",
-      "schedule": "0 22 * * *"
-    }
-  ]
+  "regions": ["hnd1"]
 }
