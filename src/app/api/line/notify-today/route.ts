@@ -87,7 +87,15 @@ export async function GET(request: Request) {
     }
   }
 
-  await pushMessage(targetUserId, lines.join("\n"));
+  try {
+    await pushMessage(targetUserId, lines.join("\n"));
+  } catch (error) {
+    return NextResponse.json(
+      { error: "line-push-failed", detail: error instanceof Error ? error.message : String(error) },
+      { status: 502 },
+    );
+  }
+
   await prisma.notificationLog.create({ data: { date: todayUtcMidnight } });
 
   return NextResponse.json({ ok: true, sent: items.length });
