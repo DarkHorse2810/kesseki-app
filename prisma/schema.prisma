@@ -71,3 +71,11 @@ model NotificationLog {
   date   DateTime @id
   sentAt DateTime @default(now())
 }
+
+// A LINE account that should receive the daily notification.
+model NotificationRecipient {
+  id         Int      @id @default(autoincrement())
+  lineUserId String   @unique
+  label      String?
+  createdAt  DateTime @default(now())
+}

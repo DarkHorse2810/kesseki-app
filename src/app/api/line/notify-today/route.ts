@@ -30,9 +30,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const targetUserId = process.env.LINE_TARGET_USER_ID?.trim();
-  if (!targetUserId) {
-    return NextResponse.json({ error: "LINE_TARGET_USER_ID が未設定です" }, { status: 500 });
+  const recipients = await prisma.notificationRecipient.findMany();
+  if (recipients.length === 0) {
+    return NextResponse.json({ error: "通知先が登録されていません" }, { status: 500 });
   }
 
   const now = new Date();
@@ -88,16 +88,30 @@ export async function GET(request: Request) {
     }
   }
 
-  try {
-    await pushMessage(targetUserId, lines.join("\n"));
-  } catch (error) {
+  const message = lines.join("\n");
+  const failures: { lineUserId: string; detail: string }[] = [];
+
+  for (const recipient of recipients) {
+    try {
+      await pushMessage(recipient.lineUserId, message);
+    } catch (error) {
+      failures.push({
+        lineUserId: recipient.lineUserId,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // Record the day as "sent" even if some recipients failed, so a bad
+  // recipient doesn't cause the whole day to be retried indefinitely.
+  await prisma.notificationLog.create({ data: { date: todayUtcMidnight } });
+
+  if (failures.length > 0) {
     return NextResponse.json(
-      { error: "line-push-failed", detail: error instanceof Error ? error.message : String(error) },
-      { status: 502 },
+      { ok: failures.length < recipients.length, sent: items.length, failures },
+      { status: failures.length === recipients.length ? 502 : 200 },
     );
   }
 
-  await prisma.notificationLog.create({ data: { date: todayUtcMidnight } });
-
-  return NextResponse.json({ ok: true, sent: items.length });
+  return NextResponse.json({ ok: true, sent: items.length, recipients: recipients.length });
 }
