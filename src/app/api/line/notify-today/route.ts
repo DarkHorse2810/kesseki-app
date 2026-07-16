@@ -27,14 +27,20 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const now = new Date();
+  const { dateKey, weekday, minutesSinceMidnight } = jstWallClock(now);
+  const todayUtcMidnight = new Date(`${dateKey}T00:00:00.000Z`);
+
+  // Absence reports are only meant to cover today going forward, so once a
+  // day has passed, drop its entries rather than let old reports pile up.
+  // This runs on every call (not just when a notification is due) since the
+  // external cron hits this endpoint every minute regardless.
+  await prisma.absence.deleteMany({ where: { date: { lt: todayUtcMidnight } } });
+
   const recipients = await prisma.notificationRecipient.findMany();
   if (recipients.length === 0) {
     return NextResponse.json({ error: "通知先が登録されていません" }, { status: 500 });
   }
-
-  const now = new Date();
-  const { dateKey, weekday, minutesSinceMidnight } = jstWallClock(now);
-  const todayUtcMidnight = new Date(`${dateKey}T00:00:00.000Z`);
 
   const override = await prisma.dateOverride.findUnique({ where: { date: todayUtcMidnight } });
   const weekdayRow = override
