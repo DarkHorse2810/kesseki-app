@@ -1,13 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
 type WeekdayRow = { weekday: number; time: string | null };
 type OverrideRow = { date: string; time: string | null };
 type RecipientRow = { id: number; lineUserId: string; label: string | null };
-type BulkRow = { date: string; weekday: number; time: string; skip: boolean };
+// `dirty` = the user explicitly touched this row this session, so it should
+// be persisted as an override on save. `hadOverride` = a saved override
+// already existed for this date when the row was (re)built. Rows that are
+// neither aren't sent on save, so they keep following the weekday schedule
+// live instead of getting needlessly frozen the moment "まとめて保存" runs.
+type BulkRow = {
+  date: string;
+  weekday: number;
+  time: string;
+  skip: boolean;
+  dirty: boolean;
+  hadOverride: boolean;
+};
 
 // "Today" as a JST calendar date, independent of the browser's own timezone.
 function jstTodayDateKey(): string {
@@ -48,7 +60,14 @@ function buildBulkRows(
     const hasOverride = overrideTimeByDate.has(date);
     const time = hasOverride ? overrideTimeByDate.get(date)! : weekdayTimeByWeekday.get(weekday) ?? null;
 
-    return { date, weekday, time: time ?? "07:00", skip: time === null };
+    return {
+      date,
+      weekday,
+      time: time ?? "07:00",
+      skip: time === null,
+      dirty: false,
+      hadOverride: hasOverride,
+    };
   });
 }
 
@@ -75,6 +94,10 @@ export default function NotificationScheduleManager({ password }: { password: st
   const [isAddingRecipient, setIsAddingRecipient] = useState(false);
   const [recipientError, setRecipientError] = useState<string | null>(null);
 
+  // Skips the weekday-change sync effect until the initial load has
+  // populated bulkRows, so it doesn't run against an empty array first.
+  const bulkRowsLoadedRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -95,6 +118,7 @@ export default function NotificationScheduleManager({ password }: { password: st
         setBulkRows(
           buildBulkRows(buildTwoMonthDateRange(jstTodayDateKey()), schedule, overrideRows),
         );
+        bulkRowsLoadedRef.current = true;
       })
       .catch(() => {
         if (!cancelled) setLoadError("通知設定の取得に失敗しました");
@@ -107,6 +131,21 @@ export default function NotificationScheduleManager({ password }: { password: st
       cancelled = true;
     };
   }, []);
+
+  // Keeps the day-by-day list in sync whenever the weekday schedule changes,
+  // for any date that isn't already pinned by an explicit override and
+  // hasn't been hand-edited this session. Without this, editing "曜日ごとの
+  // 送信時刻" only showed up after a full page reload.
+  useEffect(() => {
+    if (!bulkRowsLoadedRef.current) return;
+    setBulkRows((prev) =>
+      prev.map((row) => {
+        if (row.dirty || row.hadOverride) return row;
+        const weekdayTime = weekdayRows.find((w) => w.weekday === row.weekday)?.time ?? null;
+        return { ...row, time: weekdayTime ?? "07:00", skip: weekdayTime === null };
+      }),
+    );
+  }, [weekdayRows]);
 
   const handleAddRecipient = async () => {
     setRecipientError(null);
@@ -181,10 +220,15 @@ export default function NotificationScheduleManager({ password }: { password: st
   };
 
   const updateBulkRow = (date: string, patch: Partial<Pick<BulkRow, "time" | "skip">>) => {
-    setBulkRows((prev) => prev.map((r) => (r.date === date ? { ...r, ...patch } : r)));
+    setBulkRows((prev) =>
+      prev.map((r) => (r.date === date ? { ...r, ...patch, dirty: true } : r)),
+    );
   };
 
   const handleSaveBulk = async () => {
+    const dirtyRows = bulkRows.filter((r) => r.dirty);
+    if (dirtyRows.length === 0) return;
+
     setIsSavingBulk(true);
     setBulkSaveMessage(null);
     try {
@@ -193,7 +237,7 @@ export default function NotificationScheduleManager({ password }: { password: st
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           password,
-          overrides: bulkRows.map((r) => ({ date: r.date, time: r.skip ? null : r.time })),
+          overrides: dirtyRows.map((r) => ({ date: r.date, time: r.skip ? null : r.time })),
         }),
       });
       if (!res.ok) {
@@ -201,12 +245,15 @@ export default function NotificationScheduleManager({ password }: { password: st
         return;
       }
       const data = (await res.json()) as { overrides: OverrideRow[] };
-      setOverrides((prev) => {
-        const savedDates = new Set(data.overrides.map((o) => o.date.slice(0, 10)));
-        return [...prev.filter((o) => !savedDates.has(o.date.slice(0, 10))), ...data.overrides].sort(
+      const savedDates = new Set(data.overrides.map((o) => o.date.slice(0, 10)));
+      setOverrides((prev) =>
+        [...prev.filter((o) => !savedDates.has(o.date.slice(0, 10))), ...data.overrides].sort(
           (a, b) => a.date.localeCompare(b.date),
-        );
-      });
+        ),
+      );
+      setBulkRows((prev) =>
+        prev.map((r) => (savedDates.has(r.date) ? { ...r, dirty: false, hadOverride: true } : r)),
+      );
       setBulkSaveMessage("保存しました");
       setTimeout(() => setBulkSaveMessage(null), 3000);
     } catch {
@@ -312,7 +359,7 @@ export default function NotificationScheduleManager({ password }: { password: st
           type="button"
           className="w-full cursor-pointer rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-400"
           onClick={handleSaveBulk}
-          disabled={isSavingBulk || bulkRows.length === 0}
+          disabled={isSavingBulk || !bulkRows.some((r) => r.dirty)}
         >
           {isSavingBulk ? "保存中..." : "まとめて保存する"}
         </button>
