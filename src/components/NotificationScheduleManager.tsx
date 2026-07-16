@@ -317,10 +317,6 @@ export default function NotificationScheduleManager({ password }: { password: st
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="mb-2 text-xs text-gray-500">
-          「曜日ごとの送信時刻」を元に、今日から来月末までの送信時刻をまとめて用意します。個別の日付だけ時刻を変えたり「送信しない」にしたうえで、まとめて保存できます。
-        </p>
-
         <div className="mb-3 max-h-80 overflow-y-auto rounded-lg border border-gray-200">
           <ul className="flex flex-col divide-y divide-gray-200">
             {bulkRows.map((row) => (
