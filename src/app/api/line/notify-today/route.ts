@@ -5,9 +5,6 @@ import { pushMessage } from "@/lib/line";
 
 const NON_PLAYER_POSITIONS = new Set(["MANAGER", "ANALYST"]);
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
-// How close "now" must be to the configured send time to trigger a send.
-// Needs to comfortably cover the ~5 minute gap between cron checks.
-const MATCH_WINDOW_MINUTES = 4;
 
 function jstWallClock(date: Date) {
   const shifted = new Date(date.getTime() + JST_OFFSET_MS);
@@ -49,13 +46,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, skipped: "no-schedule-today" });
   }
 
-  const diff = Math.abs(minutesSinceMidnight - minutesFromTimeString(scheduledTime));
-  if (diff > MATCH_WINDOW_MINUTES) {
+  // Cron checks land at irregular intervals rather than exactly every 5
+  // minutes, so instead of matching a narrow time window we just wait until
+  // the scheduled time has passed. The (date, time) log below is what
+  // prevents duplicate sends once it has.
+  if (minutesSinceMidnight < minutesFromTimeString(scheduledTime)) {
     return NextResponse.json({ ok: true, skipped: "not-time-yet" });
   }
 
   const alreadySent = await prisma.notificationLog.findUnique({
-    where: { date: todayUtcMidnight },
+    where: { date_time: { date: todayUtcMidnight, time: scheduledTime } },
   });
   if (alreadySent) {
     return NextResponse.json({ ok: true, skipped: "already-sent" });
@@ -102,9 +102,11 @@ export async function GET(request: Request) {
     }
   }
 
-  // Record the day as "sent" even if some recipients failed, so a bad
-  // recipient doesn't cause the whole day to be retried indefinitely.
-  await prisma.notificationLog.create({ data: { date: todayUtcMidnight } });
+  // Record this (date, time) as "sent" even if some recipients failed, so a
+  // bad recipient doesn't cause it to be retried indefinitely.
+  await prisma.notificationLog.create({
+    data: { date: todayUtcMidnight, time: scheduledTime },
+  });
 
   if (failures.length > 0) {
     return NextResponse.json(

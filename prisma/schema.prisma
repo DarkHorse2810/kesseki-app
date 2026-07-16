@@ -65,11 +65,17 @@ model DateOverride {
   time String?
 }
 
-// One row per calendar date (JST) that a notification has already been
-// sent for, to avoid duplicate sends across multiple cron checks.
+// One row per (calendar date, scheduled time) that a notification has
+// already been sent for, to avoid duplicate sends across multiple cron
+// checks that land on the same configured time. Keying on time (not just
+// date) means changing the schedule for today creates a fresh send
+// opportunity, which is also handy for resending on purpose while testing.
 model NotificationLog {
-  date   DateTime @id
+  date   DateTime
+  time   String
   sentAt DateTime @default(now())
+
+  @@id([date, time])
 }
 
 // A LINE account that should receive the daily notification.
