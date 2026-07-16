@@ -7,6 +7,50 @@ const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 type WeekdayRow = { weekday: number; time: string | null };
 type OverrideRow = { date: string; time: string | null };
 type RecipientRow = { id: number; lineUserId: string; label: string | null };
+type BulkRow = { date: string; weekday: number; time: string; skip: boolean };
+
+// "Today" as a JST calendar date, independent of the browser's own timezone.
+function jstTodayDateKey(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+// Every date from `startDateKey` through the end of the following month
+// (i.e. "this month + next month").
+function buildTwoMonthDateRange(startDateKey: string): string[] {
+  const [year, month, day] = startDateKey.split("-").map(Number);
+  const start = new Date(Date.UTC(year, month - 1, day));
+  const endExclusive = new Date(Date.UTC(year, month + 1, 1));
+
+  const dates: string[] = [];
+  for (let cur = start; cur < endExclusive; cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000)) {
+    dates.push(cur.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
+// Seeds each date with its existing override if one is already saved,
+// otherwise falls back to that weekday's default send time.
+function buildBulkRows(
+  dates: string[],
+  weekdayRows: WeekdayRow[],
+  overrides: OverrideRow[],
+): BulkRow[] {
+  const weekdayTimeByWeekday = new Map(weekdayRows.map((r) => [r.weekday, r.time]));
+  const overrideTimeByDate = new Map(overrides.map((o) => [o.date.slice(0, 10), o.time]));
+
+  return dates.map((date) => {
+    const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+    const hasOverride = overrideTimeByDate.has(date);
+    const time = hasOverride ? overrideTimeByDate.get(date)! : weekdayTimeByWeekday.get(weekday) ?? null;
+
+    return { date, weekday, time: time ?? "07:00", skip: time === null };
+  });
+}
 
 export default function NotificationScheduleManager({ password }: { password: string }) {
   const [weekdayRows, setWeekdayRows] = useState<WeekdayRow[]>([]);
@@ -21,6 +65,10 @@ export default function NotificationScheduleManager({ password }: { password: st
   const [overrideTime, setOverrideTime] = useState("07:00");
   const [overrideSkip, setOverrideSkip] = useState(false);
   const [isAddingOverride, setIsAddingOverride] = useState(false);
+
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
+  const [isSavingBulk, setIsSavingBulk] = useState(false);
+  const [bulkSaveMessage, setBulkSaveMessage] = useState<string | null>(null);
 
   const [newRecipientId, setNewRecipientId] = useState("");
   const [newRecipientLabel, setNewRecipientLabel] = useState("");
@@ -37,11 +85,16 @@ export default function NotificationScheduleManager({ password }: { password: st
     ])
       .then(([weekdayData, overrideData, recipientData]) => {
         if (cancelled) return;
-        setWeekdayRows(
-          (weekdayData.schedule as WeekdayRow[]).sort((a, b) => a.weekday - b.weekday),
+        const schedule = (weekdayData.schedule as WeekdayRow[]).sort(
+          (a, b) => a.weekday - b.weekday,
         );
-        setOverrides(overrideData.overrides as OverrideRow[]);
+        const overrideRows = overrideData.overrides as OverrideRow[];
+        setWeekdayRows(schedule);
+        setOverrides(overrideRows);
         setRecipients(recipientData.recipients as RecipientRow[]);
+        setBulkRows(
+          buildBulkRows(buildTwoMonthDateRange(jstTodayDateKey()), schedule, overrideRows),
+        );
       })
       .catch(() => {
         if (!cancelled) setLoadError("通知設定の取得に失敗しました");
@@ -127,6 +180,46 @@ export default function NotificationScheduleManager({ password }: { password: st
     }
   };
 
+  const updateBulkRow = (date: string, patch: Partial<Pick<BulkRow, "time" | "skip">>) => {
+    setBulkRows((prev) => prev.map((r) => (r.date === date ? { ...r, ...patch } : r)));
+  };
+
+  const handleRegenerateBulkRows = () => {
+    setBulkRows(buildBulkRows(buildTwoMonthDateRange(jstTodayDateKey()), weekdayRows, overrides));
+  };
+
+  const handleSaveBulk = async () => {
+    setIsSavingBulk(true);
+    setBulkSaveMessage(null);
+    try {
+      const res = await fetch("/api/notification-schedule/overrides/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password,
+          overrides: bulkRows.map((r) => ({ date: r.date, time: r.skip ? null : r.time })),
+        }),
+      });
+      if (!res.ok) {
+        window.alert("保存に失敗しました。もう一度お試しください。");
+        return;
+      }
+      const data = (await res.json()) as { overrides: OverrideRow[] };
+      setOverrides((prev) => {
+        const savedDates = new Set(data.overrides.map((o) => o.date.slice(0, 10)));
+        return [...prev.filter((o) => !savedDates.has(o.date.slice(0, 10))), ...data.overrides].sort(
+          (a, b) => a.date.localeCompare(b.date),
+        );
+      });
+      setBulkSaveMessage("保存しました");
+      setTimeout(() => setBulkSaveMessage(null), 3000);
+    } catch {
+      window.alert("保存に失敗しました。もう一度お試しください。");
+    } finally {
+      setIsSavingBulk(false);
+    }
+  };
+
   const handleAddOverride = async () => {
     if (!overrideDate) return;
     setIsAddingOverride(true);
@@ -181,6 +274,65 @@ export default function NotificationScheduleManager({ password }: { password: st
   return (
     <div className="flex flex-col gap-6">
       <div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">今月・来月分をまとめて設定</h3>
+          <button
+            type="button"
+            className="shrink-0 cursor-pointer text-xs font-semibold text-blue-600"
+            onClick={handleRegenerateBulkRows}
+          >
+            曜日設定から作り直す
+          </button>
+        </div>
+        <p className="mb-2 text-xs text-gray-500">
+          「曜日ごとの送信時刻」を元に、今日から来月末までの送信時刻をまとめて用意します。個別の日付だけ時刻を変えたり「送信しない」にしたうえで、まとめて保存できます。
+        </p>
+
+        <div className="mb-3 max-h-80 overflow-y-auto rounded-lg border border-gray-200">
+          <ul className="flex flex-col divide-y divide-gray-200">
+            {bulkRows.map((row) => (
+              <li key={row.date} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <span className="w-20 shrink-0">
+                  {row.date.slice(5).replace("-", "/")}({WEEKDAY_LABELS[row.weekday]})
+                </span>
+                <input
+                  type="time"
+                  className="rounded-lg border border-gray-300 bg-background px-2 py-1.5 text-sm text-foreground disabled:opacity-40"
+                  value={row.time}
+                  disabled={row.skip}
+                  onChange={(e) => updateBulkRow(row.date, { time: e.target.value })}
+                />
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={row.skip}
+                    onChange={(e) => updateBulkRow(row.date, { skip: e.target.checked })}
+                  />
+                  送信しない
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {bulkSaveMessage && (
+          <p className="mb-2 text-xs text-green-700" role="status">
+            {bulkSaveMessage}
+          </p>
+        )}
+
+        <button
+          type="button"
+          className="w-full cursor-pointer rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-400"
+          onClick={handleSaveBulk}
+          disabled={isSavingBulk || bulkRows.length === 0}
+        >
+          {isSavingBulk ? "保存中..." : "まとめて保存する"}
+        </button>
+      </div>
+
+      <div>
         <h3 className="mb-2 text-sm font-semibold">曜日ごとの送信時刻</h3>
         <ul className="flex flex-col gap-2">
           {weekdayRows.map((row) => (
@@ -223,7 +375,7 @@ export default function NotificationScheduleManager({ password }: { password: st
       </div>
 
       <div>
-        <h3 className="mb-2 text-sm font-semibold">日付ごとの例外設定</h3>
+        <h3 className="mb-2 text-sm font-semibold">日付ごとの設定</h3>
 
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <input
@@ -259,7 +411,7 @@ export default function NotificationScheduleManager({ password }: { password: st
         </div>
 
         {overrides.length === 0 ? (
-          <p className="text-xs text-gray-500">例外設定はありません。</p>
+          <p className="text-xs text-gray-500">設定はありません。</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
             {overrides.map((o) => (
