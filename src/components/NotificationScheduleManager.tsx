@@ -184,10 +184,6 @@ export default function NotificationScheduleManager({ password }: { password: st
     setBulkRows((prev) => prev.map((r) => (r.date === date ? { ...r, ...patch } : r)));
   };
 
-  const handleRegenerateBulkRows = () => {
-    setBulkRows(buildBulkRows(buildTwoMonthDateRange(jstTodayDateKey()), weekdayRows, overrides));
-  };
-
   const handleSaveBulk = async () => {
     setIsSavingBulk(true);
     setBulkSaveMessage(null);
@@ -274,16 +270,6 @@ export default function NotificationScheduleManager({ password }: { password: st
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">今月・来月分をまとめて設定</h3>
-          <button
-            type="button"
-            className="shrink-0 cursor-pointer text-xs font-semibold text-blue-600"
-            onClick={handleRegenerateBulkRows}
-          >
-            曜日設定から作り直す
-          </button>
-        </div>
         <p className="mb-2 text-xs text-gray-500">
           「曜日ごとの送信時刻」を元に、今日から来月末までの送信時刻をまとめて用意します。個別の日付だけ時刻を変えたり「送信しない」にしたうえで、まとめて保存できます。
         </p>
