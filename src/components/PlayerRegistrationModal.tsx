@@ -304,7 +304,10 @@ export default function PlayerRegistrationModal() {
                   </div>
 
                   <div className="mb-5">
-                    <span className="mb-1.5 block text-sm font-semibold">ポジション</span>
+                    <span className="mb-1.5 block text-sm font-semibold">
+                      ポジション
+                      <span className="ml-1 text-xs font-normal text-red-600">必須</span>
+                    </span>
                     <button
                       type="button"
                       className="flex w-full cursor-pointer items-center justify-between rounded-lg border border-gray-300 bg-background px-3 py-2.5 text-base text-foreground"
