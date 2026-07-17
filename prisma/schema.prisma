@@ -59,10 +59,14 @@ model WeekdaySchedule {
 }
 
 // Per-date override of the weekday default. time is "HH:MM" in JST,
-// null = skip sending on this date.
+// null = skip sending on this date. When time is null, earlyLeaveSend
+// controls whether an early-leave-only notification still goes out that
+// day (at earlyLeaveTime, only if there's at least one report).
 model DateOverride {
-  date DateTime @id
-  time String?
+  date           DateTime @id
+  time           String?
+  earlyLeaveSend Boolean  @default(true)
+  earlyLeaveTime String?
 }
 
 // One row per (calendar date, scheduled time) that a notification has
@@ -84,15 +88,6 @@ model NotificationRecipient {
   lineUserId String   @unique
   label      String?
   createdAt  DateTime @default(now())
-}
-
-// A LINE group/room that gets an immediate message the moment a new
-// absence is submitted through the site.
-model RealtimeAbsenceTarget {
-  id        Int      @id @default(autoincrement())
-  lineId    String   @unique // LINE groupId or roomId
-  label     String?
-  createdAt DateTime @default(now())
 }
 
 // Tracks which chat (group/room/user) has already been told its ID via the

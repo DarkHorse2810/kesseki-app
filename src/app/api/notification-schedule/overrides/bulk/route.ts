@@ -18,9 +18,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
   }
 
-  const parsed: { date: Date; time: string | null }[] = [];
+  const parsed: { date: Date; time: string | null; earlyLeaveSend: boolean; earlyLeaveTime: string | null }[] = [];
   for (const entry of overrides as unknown[]) {
-    const { date, time } = (entry ?? {}) as { date?: unknown; time?: unknown };
+    const { date, time, earlyLeaveSend, earlyLeaveTime } = (entry ?? {}) as {
+      date?: unknown;
+      time?: unknown;
+      earlyLeaveSend?: unknown;
+      earlyLeaveTime?: unknown;
+    };
 
     if (typeof date !== "string" || date.trim().length === 0) {
       return NextResponse.json({ error: "日付の指定が不正です" }, { status: 400 });
@@ -32,16 +37,28 @@ export async function POST(request: Request) {
     if (time !== null && (typeof time !== "string" || !TIME_PATTERN.test(time))) {
       return NextResponse.json({ error: "時刻はHH:MM形式で指定してください" }, { status: 400 });
     }
+    if (
+      earlyLeaveTime !== null &&
+      earlyLeaveTime !== undefined &&
+      (typeof earlyLeaveTime !== "string" || !TIME_PATTERN.test(earlyLeaveTime))
+    ) {
+      return NextResponse.json({ error: "早退送信の時刻はHH:MM形式で指定してください" }, { status: 400 });
+    }
 
-    parsed.push({ date: parsedDate, time: (time as string | null) ?? null });
+    parsed.push({
+      date: parsedDate,
+      time: (time as string | null) ?? null,
+      earlyLeaveSend: typeof earlyLeaveSend === "boolean" ? earlyLeaveSend : true,
+      earlyLeaveTime: (earlyLeaveTime as string | null | undefined) ?? null,
+    });
   }
 
   const rows = await prisma.$transaction(
-    parsed.map(({ date, time }) =>
+    parsed.map(({ date, time, earlyLeaveSend, earlyLeaveTime }) =>
       prisma.dateOverride.upsert({
         where: { date },
-        update: { time },
-        create: { date, time },
+        update: { time, earlyLeaveSend, earlyLeaveTime },
+        create: { date, time, earlyLeaveSend, earlyLeaveTime },
       }),
     ),
   );

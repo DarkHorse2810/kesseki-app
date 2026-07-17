@@ -5,18 +5,27 @@ import { useEffect, useRef, useState } from "react";
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
 type WeekdayRow = { weekday: number; time: string | null };
-type OverrideRow = { date: string; time: string | null };
+type OverrideRow = {
+  date: string;
+  time: string | null;
+  earlyLeaveSend: boolean;
+  earlyLeaveTime: string | null;
+};
 type RecipientRow = { id: number; lineUserId: string; label: string | null };
 // `dirty` = the user explicitly touched this row this session, so it should
 // be persisted as an override on save. `hadOverride` = a saved override
 // already existed for this date when the row was (re)built. Rows that are
 // neither aren't sent on save, so they keep following the weekday schedule
 // live instead of getting needlessly frozen the moment "まとめて保存" runs.
+// `time` doubles as the early-leave check time when `skip` is on and
+// `earlyLeaveSend` is checked — there's only one time slot per day either
+// way, so the same input is reused for whichever one applies.
 type BulkRow = {
   date: string;
   weekday: number;
   time: string;
   skip: boolean;
+  earlyLeaveSend: boolean;
   dirty: boolean;
   hadOverride: boolean;
 };
@@ -53,18 +62,21 @@ function buildBulkRows(
   overrides: OverrideRow[],
 ): BulkRow[] {
   const weekdayTimeByWeekday = new Map(weekdayRows.map((r) => [r.weekday, r.time]));
-  const overrideTimeByDate = new Map(overrides.map((o) => [o.date.slice(0, 10), o.time]));
+  const overrideByDate = new Map(overrides.map((o) => [o.date.slice(0, 10), o]));
 
   return dates.map((date) => {
     const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
-    const hasOverride = overrideTimeByDate.has(date);
-    const time = hasOverride ? overrideTimeByDate.get(date)! : weekdayTimeByWeekday.get(weekday) ?? null;
+    const override = overrideByDate.get(date);
+    const hasOverride = override !== undefined;
+    const time = hasOverride ? override.time : weekdayTimeByWeekday.get(weekday) ?? null;
+    const skip = time === null;
 
     return {
       date,
       weekday,
-      time: time ?? "07:00",
-      skip: time === null,
+      time: (skip ? override?.earlyLeaveTime : time) ?? "07:00",
+      skip,
+      earlyLeaveSend: hasOverride ? override.earlyLeaveSend : true,
       dirty: false,
       hadOverride: hasOverride,
     };
@@ -83,6 +95,7 @@ export default function NotificationScheduleManager({ password }: { password: st
   const [overrideDate, setOverrideDate] = useState("");
   const [overrideTime, setOverrideTime] = useState("07:00");
   const [overrideSkip, setOverrideSkip] = useState(false);
+  const [overrideEarlyLeaveSend, setOverrideEarlyLeaveSend] = useState(true);
   const [isAddingOverride, setIsAddingOverride] = useState(false);
 
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
@@ -142,7 +155,12 @@ export default function NotificationScheduleManager({ password }: { password: st
       prev.map((row) => {
         if (row.dirty || row.hadOverride) return row;
         const weekdayTime = weekdayRows.find((w) => w.weekday === row.weekday)?.time ?? null;
-        return { ...row, time: weekdayTime ?? "07:00", skip: weekdayTime === null };
+        return {
+          ...row,
+          time: weekdayTime ?? "07:00",
+          skip: weekdayTime === null,
+          earlyLeaveSend: true,
+        };
       }),
     );
   }, [weekdayRows]);
@@ -219,7 +237,10 @@ export default function NotificationScheduleManager({ password }: { password: st
     }
   };
 
-  const updateBulkRow = (date: string, patch: Partial<Pick<BulkRow, "time" | "skip">>) => {
+  const updateBulkRow = (
+    date: string,
+    patch: Partial<Pick<BulkRow, "time" | "skip" | "earlyLeaveSend">>,
+  ) => {
     setBulkRows((prev) =>
       prev.map((r) => (r.date === date ? { ...r, ...patch, dirty: true } : r)),
     );
@@ -237,7 +258,12 @@ export default function NotificationScheduleManager({ password }: { password: st
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           password,
-          overrides: dirtyRows.map((r) => ({ date: r.date, time: r.skip ? null : r.time })),
+          overrides: dirtyRows.map((r) => ({
+            date: r.date,
+            time: r.skip ? null : r.time,
+            earlyLeaveSend: r.skip ? r.earlyLeaveSend : true,
+            earlyLeaveTime: r.skip && r.earlyLeaveSend ? r.time : null,
+          })),
         }),
       });
       if (!res.ok) {
@@ -274,6 +300,8 @@ export default function NotificationScheduleManager({ password }: { password: st
           password,
           date: overrideDate,
           time: overrideSkip ? null : overrideTime,
+          earlyLeaveSend: overrideSkip ? overrideEarlyLeaveSend : true,
+          earlyLeaveTime: overrideSkip && overrideEarlyLeaveSend ? overrideTime : null,
         }),
       });
       if (!res.ok) {
@@ -328,7 +356,7 @@ export default function NotificationScheduleManager({ password }: { password: st
                   type="time"
                   className="rounded-lg border border-gray-300 bg-background px-2 py-1.5 text-sm text-foreground disabled:opacity-40"
                   value={row.time}
-                  disabled={row.skip}
+                  disabled={row.skip && !row.earlyLeaveSend}
                   onChange={(e) => updateBulkRow(row.date, { time: e.target.value })}
                 />
                 <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-600">
@@ -336,9 +364,28 @@ export default function NotificationScheduleManager({ password }: { password: st
                     type="checkbox"
                     className="h-4 w-4"
                     checked={row.skip}
-                    onChange={(e) => updateBulkRow(row.date, { skip: e.target.checked })}
+                    onChange={(e) =>
+                      updateBulkRow(row.date, {
+                        skip: e.target.checked,
+                        earlyLeaveSend: e.target.checked ? true : row.earlyLeaveSend,
+                      })
+                    }
                   />
                   送信しない
+                </label>
+                <label
+                  className={`flex items-center gap-1.5 text-xs text-gray-600 ${
+                    row.skip ? "cursor-pointer" : "cursor-not-allowed opacity-40"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={row.earlyLeaveSend}
+                    disabled={!row.skip}
+                    onChange={(e) => updateBulkRow(row.date, { earlyLeaveSend: e.target.checked })}
+                  />
+                  早退送信
                 </label>
               </li>
             ))}
@@ -417,7 +464,7 @@ export default function NotificationScheduleManager({ password }: { password: st
             type="time"
             className="rounded-lg border border-gray-300 bg-background px-2 py-1.5 text-sm text-foreground disabled:opacity-40"
             value={overrideTime}
-            disabled={overrideSkip}
+            disabled={overrideSkip && !overrideEarlyLeaveSend}
             onChange={(e) => setOverrideTime(e.target.value)}
           />
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-600">
@@ -425,9 +472,26 @@ export default function NotificationScheduleManager({ password }: { password: st
               type="checkbox"
               className="h-4 w-4"
               checked={overrideSkip}
-              onChange={(e) => setOverrideSkip(e.target.checked)}
+              onChange={(e) => {
+                setOverrideSkip(e.target.checked);
+                if (e.target.checked) setOverrideEarlyLeaveSend(true);
+              }}
             />
             送信しない
+          </label>
+          <label
+            className={`flex items-center gap-1.5 text-xs text-gray-600 ${
+              overrideSkip ? "cursor-pointer" : "cursor-not-allowed opacity-40"
+            }`}
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={overrideEarlyLeaveSend}
+              disabled={!overrideSkip}
+              onChange={(e) => setOverrideEarlyLeaveSend(e.target.checked)}
+            />
+            早退送信
           </label>
           <button
             type="button"
@@ -450,7 +514,12 @@ export default function NotificationScheduleManager({ password }: { password: st
               >
                 <span>
                   {o.date.slice(0, 10).replaceAll("-", "/")}
-                  ・{o.time ? `${o.time} に送信` : "送信しない"}
+                  ・
+                  {o.time
+                    ? `${o.time} に送信`
+                    : o.earlyLeaveSend && o.earlyLeaveTime
+                      ? `送信しない(早退送信 ${o.earlyLeaveTime})`
+                      : "送信しない"}
                 </span>
                 <button
                   type="button"

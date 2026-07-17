@@ -1,34 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateCurrentGrade } from "@/lib/grade";
-import { pushMessage } from "@/lib/line";
-
-const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
-
-function formatDateLabel(date: Date): string {
-  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}(${WEEKDAY_LABELS[date.getUTCDay()]})`;
-}
-
-async function notifyRealtimeTargets(
-  playerName: string,
-  grade: number,
-  dates: Date[],
-  reason: string,
-) {
-  const targets = await prisma.realtimeAbsenceTarget.findMany();
-  if (targets.length === 0) return;
-
-  const dateLabel =
-    dates.length === 1
-      ? formatDateLabel(dates[0])
-      : `${formatDateLabel(dates[0])}〜${formatDateLabel(dates[dates.length - 1])}`;
-
-  const message = `【欠席連絡】\n${grade}年${playerName}\n${dateLabel}\n${reason}`;
-
-  await Promise.allSettled(
-    targets.map((target) => pushMessage(target.lineId, message)),
-  );
-}
+import { getEffectiveSchedule } from "@/lib/notificationSchedule";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -98,10 +71,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
   }
 
-  const { playerId, date, endDate, reason } = body as {
+  const { playerId, date, reason } = body as {
     playerId?: unknown;
     date?: unknown;
-    endDate?: unknown;
     reason?: unknown;
   };
 
@@ -118,17 +90,9 @@ export async function POST(request: Request) {
   if (Number.isNaN(parsedDate.getTime())) {
     return NextResponse.json({ error: "日付を正しく入力してください" }, { status: 400 });
   }
-
-  let parsedEndDate = parsedDate;
-  if (typeof endDate === "string" && endDate.trim().length > 0) {
-    parsedEndDate = new Date(endDate);
-    if (Number.isNaN(parsedEndDate.getTime())) {
-      return NextResponse.json({ error: "終了日を正しく入力してください" }, { status: 400 });
-    }
-    if (parsedEndDate < parsedDate) {
-      return NextResponse.json({ error: "終了日は開始日以降にしてください" }, { status: 400 });
-    }
-  }
+  const dateUtcMidnight = new Date(
+    Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate()),
+  );
 
   if (typeof reason !== "string" || reason.trim().length === 0) {
     return NextResponse.json({ error: "理由を入力してください" }, { status: 400 });
@@ -139,32 +103,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "選択された選手が見つかりません" }, { status: 400 });
   }
 
-  const dates: Date[] = [];
-  for (
-    let d = new Date(parsedDate);
-    d <= parsedEndDate;
-    d.setUTCDate(d.getUTCDate() + 1)
-  ) {
-    dates.push(new Date(d));
-    if (dates.length > 90) {
-      return NextResponse.json(
-        { error: "一度に指定できる期間は90日までです" },
-        { status: 400 },
-      );
-    }
+  const schedule = await getEffectiveSchedule(dateUtcMidnight);
+  if (schedule.time === null && !schedule.earlyLeaveSend) {
+    return NextResponse.json(
+      { error: "この日は欠席連絡を受け付けていません" },
+      { status: 400 },
+    );
   }
 
   const trimmedReason = reason.trim();
-  const absences = await prisma.absence.createManyAndReturn({
-    data: dates.map((d) => ({
-      playerId: playerIdNumber,
-      date: d,
-      reason: trimmedReason,
-    })),
+  const absence = await prisma.absence.create({
+    data: { playerId: playerIdNumber, date: dateUtcMidnight, reason: trimmedReason },
   });
 
-  const currentGrade = calculateCurrentGrade(player.baseGrade, player.baseYear, dates[0]);
-  await notifyRealtimeTargets(player.name, currentGrade, dates, trimmedReason).catch(() => {});
-
-  return NextResponse.json({ absences }, { status: 201 });
+  return NextResponse.json({ absences: [absence] }, { status: 201 });
 }

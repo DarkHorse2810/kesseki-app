@@ -14,10 +14,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
   }
 
-  const { password, date, time } = body as {
+  const { password, date, time, earlyLeaveSend, earlyLeaveTime } = body as {
     password?: unknown;
     date?: unknown;
     time?: unknown;
+    earlyLeaveSend?: unknown;
+    earlyLeaveTime?: unknown;
   };
 
   if (typeof password !== "string" || password !== process.env.SETTINGS_PASSWORD) {
@@ -37,10 +39,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "時刻はHH:MM形式で指定してください" }, { status: 400 });
   }
 
+  if (
+    earlyLeaveTime !== null &&
+    earlyLeaveTime !== undefined &&
+    (typeof earlyLeaveTime !== "string" || !TIME_PATTERN.test(earlyLeaveTime))
+  ) {
+    return NextResponse.json({ error: "早退送信の時刻はHH:MM形式で指定してください" }, { status: 400 });
+  }
+
+  const data = {
+    time: (time as string | null | undefined) ?? null,
+    earlyLeaveSend: typeof earlyLeaveSend === "boolean" ? earlyLeaveSend : true,
+    earlyLeaveTime: (earlyLeaveTime as string | null | undefined) ?? null,
+  };
+
   const override = await prisma.dateOverride.upsert({
     where: { date: parsedDate },
-    update: { time: (time as string | null | undefined) ?? null },
-    create: { date: parsedDate, time: (time as string | null | undefined) ?? null },
+    update: data,
+    create: { date: parsedDate, ...data },
   });
 
   return NextResponse.json({ override }, { status: 201 });

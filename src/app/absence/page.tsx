@@ -10,16 +10,15 @@ export default function AbsencePage() {
   const { selfPlayer, isChecking } = useSelfPlayer();
 
   const [date, setDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [isRange, setIsRange] = useState(false);
   const [reason, setReason] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingSchedule, setIsCheckingSchedule] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showEarlyLeaveConfirm, setShowEarlyLeaveConfirm] = useState(false);
 
   const dateFieldId = useId();
-  const endDateFieldId = useId();
   const reasonFieldId = useId();
 
   useEffect(() => {
@@ -27,8 +26,38 @@ export default function AbsencePage() {
   }, []);
 
   const isDateValid = date.trim().length > 0;
-  const isEndDateValid = !isRange || endDate.trim().length > 0;
   const isReasonValid = reason.trim().length > 0;
+
+  const submitAbsence = async () => {
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("/api/absences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playerId: selfPlayer!.id,
+          date,
+          reason,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setFormError(data?.error ?? "送信に失敗しました。もう一度お試しください。");
+        return;
+      }
+
+      setDate("");
+      setReason("");
+      setSubmitted(false);
+      setSuccessMessage("送信しました");
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch {
+      setFormError("送信に失敗しました。もう一度お試しください。");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -41,40 +70,38 @@ export default function AbsencePage() {
       return;
     }
 
-    if (!isDateValid || !isEndDateValid || !isReasonValid) return;
-    if (isSubmitting) return;
+    if (!isDateValid || !isReasonValid) return;
+    if (isSubmitting || isCheckingSchedule) return;
 
-    setIsSubmitting(true);
+    setIsCheckingSchedule(true);
     try {
-      const res = await fetch("/api/absences", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          playerId: selfPlayer.id,
-          date,
-          endDate: isRange ? endDate : undefined,
-          reason,
-        }),
-      });
+      const res = await fetch(
+        `/api/notification-schedule/effective?date=${encodeURIComponent(date)}`,
+      );
+      const data = await res.json().catch(() => null);
+      const status = res.ok ? (data?.status as string | undefined) : undefined;
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        setFormError(data?.error ?? "送信に失敗しました。もう一度お試しください。");
+      if (status === "blocked") {
+        setFormError("この日は欠席連絡を受け付けていません。");
         return;
       }
 
-      setDate("");
-      setEndDate("");
-      setIsRange(false);
-      setReason("");
-      setSubmitted(false);
-      setSuccessMessage("送信しました");
-      setTimeout(() => setSuccessMessage(null), 3000);
+      if (status === "early-leave") {
+        setShowEarlyLeaveConfirm(true);
+        return;
+      }
+
+      await submitAbsence();
     } catch {
       setFormError("送信に失敗しました。もう一度お試しください。");
     } finally {
-      setIsSubmitting(false);
+      setIsCheckingSchedule(false);
     }
+  };
+
+  const handleConfirmEarlyLeave = async () => {
+    setShowEarlyLeaveConfirm(false);
+    await submitAbsence();
   };
 
   return (
@@ -105,7 +132,7 @@ export default function AbsencePage() {
         <form onSubmit={handleSubmit} noValidate>
           <div className="mb-5">
             <label htmlFor={dateFieldId} className="mb-1.5 block text-sm font-semibold">
-              {isRange ? "開始日" : "日付"}
+              日付
               <span className="ml-1 text-xs font-normal text-red-600">必須</span>
             </label>
             <input
@@ -118,37 +145,7 @@ export default function AbsencePage() {
             {submitted && !isDateValid && (
               <p className="mt-1 text-xs text-red-600">日付を入力してください</p>
             )}
-
-            <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-gray-600">
-              <input
-                type="checkbox"
-                className="h-4 w-4"
-                checked={isRange}
-                onChange={(e) => setIsRange(e.target.checked)}
-              />
-              期間で指定する(複数日まとめて登録)
-            </label>
           </div>
-
-          {isRange && (
-            <div className="mb-5">
-              <label htmlFor={endDateFieldId} className="mb-1.5 block text-sm font-semibold">
-                終了日
-                <span className="ml-1 text-xs font-normal text-red-600">必須</span>
-              </label>
-              <input
-                id={endDateFieldId}
-                type="date"
-                min={date || undefined}
-                className="w-full rounded-lg border border-gray-300 bg-background px-3 py-2.5 text-base text-foreground focus:outline-2 focus:outline-offset-1 focus:outline-blue-600"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-              {submitted && !isEndDateValid && (
-                <p className="mt-1 text-xs text-red-600">終了日を入力してください</p>
-              )}
-            </div>
-          )}
 
           <div className="mb-5">
             <label htmlFor={reasonFieldId} className="mb-1.5 block text-sm font-semibold">
@@ -176,9 +173,9 @@ export default function AbsencePage() {
           <button
             type="submit"
             className="w-full cursor-pointer rounded-lg bg-blue-600 py-3 text-base font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-400"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isCheckingSchedule}
           >
-            {isSubmitting ? "送信中..." : "送信"}
+            {isSubmitting || isCheckingSchedule ? "送信中..." : "送信"}
           </button>
         </form>
 
@@ -189,6 +186,30 @@ export default function AbsencePage() {
           予定表へ
         </Link>
       </div>
+
+      {showEarlyLeaveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-[360px] rounded-2xl bg-background p-6 text-foreground shadow-lg">
+            <p className="mb-5 text-sm">早退として連絡します。</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                className="flex-1 cursor-pointer rounded-lg border border-gray-300 py-2.5 text-sm font-semibold text-foreground hover:bg-gray-50 dark:hover:bg-white/5"
+                onClick={() => setShowEarlyLeaveConfirm(false)}
+              >
+                いいえ
+              </button>
+              <button
+                type="button"
+                className="flex-1 cursor-pointer rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white"
+                onClick={handleConfirmEarlyLeave}
+              >
+                はい
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
