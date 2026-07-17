@@ -76,7 +76,7 @@ function buildBulkRows(
       weekday,
       time: (skip ? override?.earlyLeaveTime : time) ?? "07:00",
       skip,
-      earlyLeaveSend: hasOverride ? override.earlyLeaveSend : true,
+      earlyLeaveSend: skip ? (hasOverride ? override.earlyLeaveSend : true) : false,
       dirty: false,
       hadOverride: hasOverride,
     };
@@ -159,7 +159,7 @@ export default function NotificationScheduleManager({ password }: { password: st
           ...row,
           time: weekdayTime ?? "07:00",
           skip: weekdayTime === null,
-          earlyLeaveSend: true,
+          earlyLeaveSend: weekdayTime === null,
         };
       }),
     );
@@ -261,7 +261,7 @@ export default function NotificationScheduleManager({ password }: { password: st
           overrides: dirtyRows.map((r) => ({
             date: r.date,
             time: r.skip ? null : r.time,
-            earlyLeaveSend: r.skip ? r.earlyLeaveSend : true,
+            earlyLeaveSend: r.skip ? r.earlyLeaveSend : false,
             earlyLeaveTime: r.skip && r.earlyLeaveSend ? r.time : null,
           })),
         }),
@@ -300,7 +300,7 @@ export default function NotificationScheduleManager({ password }: { password: st
           password,
           date: overrideDate,
           time: overrideSkip ? null : overrideTime,
-          earlyLeaveSend: overrideSkip ? overrideEarlyLeaveSend : true,
+          earlyLeaveSend: overrideSkip ? overrideEarlyLeaveSend : false,
           earlyLeaveTime: overrideSkip && overrideEarlyLeaveSend ? overrideTime : null,
         }),
       });
@@ -367,7 +367,7 @@ export default function NotificationScheduleManager({ password }: { password: st
                     onChange={(e) =>
                       updateBulkRow(row.date, {
                         skip: e.target.checked,
-                        earlyLeaveSend: e.target.checked ? true : row.earlyLeaveSend,
+                        earlyLeaveSend: e.target.checked,
                       })
                     }
                   />
@@ -474,7 +474,7 @@ export default function NotificationScheduleManager({ password }: { password: st
               checked={overrideSkip}
               onChange={(e) => {
                 setOverrideSkip(e.target.checked);
-                if (e.target.checked) setOverrideEarlyLeaveSend(true);
+                setOverrideEarlyLeaveSend(e.target.checked);
               }}
             />
             送信しない
