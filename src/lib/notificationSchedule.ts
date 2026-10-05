@@ -6,12 +6,18 @@ export type EffectiveSchedule = {
   earlyLeaveTime: string | null;
 };
 
+// Time the early-leave check starts at when a "don't send" day has early-leave
+// sending on but no explicit time saved. Matches the time the settings screen
+// shows for such a day, so what's displayed there is what actually happens.
+export const DEFAULT_EARLY_LEAVE_TIME = "07:00";
+
 // Resolves the notification schedule for a given calendar date (UTC
 // midnight), preferring an explicit DateOverride and falling back to the
-// weekday default. Early-leave settings only ever come from an explicit
-// override — a weekday default alone has no time to send at, so a date that
-// falls back to "don't send" via the weekday schedule is fully blocked
-// rather than silently accepting reports that would never be notified.
+// weekday default. On a "don't send" day, early-leave sending is on unless an
+// override explicitly turns it off — the settings screen shows the "早退送信"
+// box checked for those days whether or not an override has been saved, so
+// a day that only falls back to "don't send" via the weekday schedule (or an
+// override saved without a time) has to behave the same way.
 export async function getEffectiveSchedule(dateUtcMidnight: Date): Promise<EffectiveSchedule> {
   const override = await prisma.dateOverride.findUnique({ where: { date: dateUtcMidnight } });
   if (override) {
@@ -20,13 +26,19 @@ export async function getEffectiveSchedule(dateUtcMidnight: Date): Promise<Effec
     }
     return {
       time: null,
-      earlyLeaveSend: override.earlyLeaveSend && override.earlyLeaveTime !== null,
-      earlyLeaveTime: override.earlyLeaveTime,
+      earlyLeaveSend: override.earlyLeaveSend,
+      earlyLeaveTime: override.earlyLeaveSend
+        ? override.earlyLeaveTime ?? DEFAULT_EARLY_LEAVE_TIME
+        : null,
     };
   }
 
   const weekdayRow = await prisma.weekdaySchedule.findUnique({
     where: { weekday: dateUtcMidnight.getUTCDay() },
   });
-  return { time: weekdayRow?.time ?? null, earlyLeaveSend: false, earlyLeaveTime: null };
+  const time = weekdayRow?.time ?? null;
+  if (time !== null) {
+    return { time, earlyLeaveSend: false, earlyLeaveTime: null };
+  }
+  return { time: null, earlyLeaveSend: true, earlyLeaveTime: DEFAULT_EARLY_LEAVE_TIME };
 }

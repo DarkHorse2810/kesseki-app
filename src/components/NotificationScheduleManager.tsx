@@ -517,8 +517,8 @@ export default function NotificationScheduleManager({ password }: { password: st
                   ・
                   {o.time
                     ? `${o.time} に送信`
-                    : o.earlyLeaveSend && o.earlyLeaveTime
-                      ? `送信しない(早退送信 ${o.earlyLeaveTime})`
+                    : o.earlyLeaveSend
+                      ? `送信しない(早退送信 ${o.earlyLeaveTime ?? "07:00"})`
                       : "送信しない"}
                 </span>
                 <button

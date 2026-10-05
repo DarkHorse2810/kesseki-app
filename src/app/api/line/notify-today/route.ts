@@ -2,15 +2,18 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateCurrentGrade } from "@/lib/grade";
 import { pushMessage } from "@/lib/line";
+import { getEffectiveSchedule } from "@/lib/notificationSchedule";
 
 const NON_PLAYER_POSITIONS = new Set(["MANAGER", "ANALYST"]);
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+// NotificationLog.time prefix for early-leave sends, followed by the highest
+// Absence id included so far (e.g. "early:42").
+const EARLY_LEAVE_LOG_PREFIX = "early:";
 
 function jstWallClock(date: Date) {
   const shifted = new Date(date.getTime() + JST_OFFSET_MS);
   return {
     dateKey: shifted.toISOString().slice(0, 10),
-    weekday: shifted.getUTCDay(),
     minutesSinceMidnight: shifted.getUTCHours() * 60 + shifted.getUTCMinutes(),
   };
 }
@@ -20,14 +23,18 @@ function minutesFromTimeString(time: string): number {
   return hour * 60 + minute;
 }
 
-async function buildAbsenceMessage(todayUtcMidnight: Date, headerLabel: string) {
+// `afterId` limits the message to reports newer than that Absence id.
+async function buildAbsenceMessage(todayUtcMidnight: Date, headerLabel: string, afterId?: number) {
   const rangeStart = todayUtcMidnight;
   const rangeEnd = new Date(todayUtcMidnight.getTime() + 24 * 60 * 60 * 1000);
 
   const absences = await prisma.absence.findMany({
-    where: { date: { gte: rangeStart, lt: rangeEnd } },
+    where: {
+      date: { gte: rangeStart, lt: rangeEnd },
+      ...(afterId !== undefined ? { id: { gt: afterId } } : {}),
+    },
     include: { player: { include: { positions: true } } },
-    orderBy: { date: "asc" },
+    orderBy: [{ date: "asc" }, { id: "asc" }],
   });
 
   const items = absences.map((absence) => ({
@@ -48,7 +55,11 @@ async function buildAbsenceMessage(todayUtcMidnight: Date, headerLabel: string) 
     }
   }
 
-  return { message: lines.join("\n"), count: items.length };
+  return {
+    message: lines.join("\n"),
+    count: items.length,
+    maxId: absences.reduce((max, absence) => Math.max(max, absence.id), 0),
+  };
 }
 
 async function sendToRecipients(
@@ -87,7 +98,7 @@ export async function GET(request: Request) {
   }
 
   const now = new Date();
-  const { dateKey, weekday, minutesSinceMidnight } = jstWallClock(now);
+  const { dateKey, minutesSinceMidnight } = jstWallClock(now);
   const todayUtcMidnight = new Date(`${dateKey}T00:00:00.000Z`);
 
   // Absence reports and past schedule items are only meant to cover today
@@ -103,12 +114,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "通知先が登録されていません" }, { status: 500 });
   }
 
-  const override = await prisma.dateOverride.findUnique({ where: { date: todayUtcMidnight } });
-  const weekdayRow = override
-    ? null
-    : await prisma.weekdaySchedule.findUnique({ where: { weekday } });
-
-  const scheduledTime = override ? override.time : weekdayRow?.time ?? null;
+  const schedule = await getEffectiveSchedule(todayUtcMidnight);
+  const scheduledTime = schedule.time;
 
   // Normal roll-call day: send at scheduledTime regardless of headcount.
   if (scheduledTime) {
@@ -140,33 +147,45 @@ export async function GET(request: Request) {
   }
 
   // No roll-call scheduled today. If early-leave sending is on for this
-  // date (only possible via an explicit override, since a weekday default
-  // alone has no time to check at), send a "今日の早退" summary at
-  // earlyLeaveTime, but only when there's at least one report.
-  if (!override?.earlyLeaveSend || !override.earlyLeaveTime) {
+  // date, send a "今日の早退" summary once earlyLeaveTime has passed, but only
+  // when there's at least one report.
+  if (!schedule.earlyLeaveSend || !schedule.earlyLeaveTime) {
     return NextResponse.json({ ok: true, skipped: "no-schedule-today" });
   }
 
-  const earlyLeaveTime = override.earlyLeaveTime;
-  if (minutesSinceMidnight < minutesFromTimeString(earlyLeaveTime)) {
+  if (minutesSinceMidnight < minutesFromTimeString(schedule.earlyLeaveTime)) {
     return NextResponse.json({ ok: true, skipped: "not-time-yet" });
   }
 
-  const alreadySent = await prisma.notificationLog.findUnique({
-    where: { date_time: { date: todayUtcMidnight, time: earlyLeaveTime } },
+  // People report leaving early throughout the day, so this isn't a
+  // one-shot send like the roll-call: each cron call sends whatever has been
+  // reported since the last send. The log entry records the newest Absence
+  // id already sent, so every report goes out exactly once.
+  const earlierSends = await prisma.notificationLog.findMany({
+    where: { date: todayUtcMidnight, time: { startsWith: EARLY_LEAVE_LOG_PREFIX } },
   });
-  if (alreadySent) {
-    return NextResponse.json({ ok: true, skipped: "already-sent" });
-  }
+  const lastSentId = earlierSends.reduce(
+    (max, log) => Math.max(max, Number(log.time.slice(EARLY_LEAVE_LOG_PREFIX.length)) || 0),
+    0,
+  );
 
-  const { message, count } = await buildAbsenceMessage(todayUtcMidnight, "今日の早退");
+  const { message, count, maxId } = await buildAbsenceMessage(
+    todayUtcMidnight,
+    "今日の早退",
+    lastSentId,
+  );
   if (count === 0) {
-    // Nothing reported (yet) — don't log as sent, so later cron calls keep
-    // checking in case someone reports before the day rolls over.
+    // Nothing new reported (yet) — later cron calls keep checking in case
+    // someone reports before the day rolls over.
     return NextResponse.json({ ok: true, skipped: "no-early-leave-reports" });
   }
 
-  const failures = await sendToRecipients(todayUtcMidnight, earlyLeaveTime, recipients, message);
+  const failures = await sendToRecipients(
+    todayUtcMidnight,
+    `${EARLY_LEAVE_LOG_PREFIX}${maxId}`,
+    recipients,
+    message,
+  );
 
   if (failures.length > 0) {
     return NextResponse.json(
