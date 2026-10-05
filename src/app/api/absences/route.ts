@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { calculateCurrentGrade } from "@/lib/grade";
+import { jstNow, sendPendingEarlyLeave } from "@/lib/absenceNotification";
 import { getEffectiveSchedule } from "@/lib/notificationSchedule";
 
 export async function GET(request: Request) {
@@ -115,6 +116,23 @@ export async function POST(request: Request) {
   const absence = await prisma.absence.create({
     data: { playerId: playerIdNumber, date: dateUtcMidnight, reason: trimmedReason },
   });
+
+  // An early-leave report for today made after that day's send time has
+  // missed the batch, so send it right away. (Before the send time this is a
+  // no-op and the cron delivers it with the rest.) The report is already
+  // saved, so a failed send doesn't fail the request — the cron retries
+  // anything still unsent.
+  const { todayUtcMidnight, minutesSinceMidnight } = jstNow();
+  if (dateUtcMidnight.getTime() === todayUtcMidnight.getTime()) {
+    try {
+      const recipients = await prisma.notificationRecipient.findMany();
+      if (recipients.length > 0) {
+        await sendPendingEarlyLeave(todayUtcMidnight, minutesSinceMidnight, schedule, recipients);
+      }
+    } catch (error) {
+      console.error("early-leave notification failed", error);
+    }
+  }
 
   return NextResponse.json({ absences: [absence] }, { status: 201 });
 }
